@@ -1,0 +1,116 @@
+<!doctype html>
+<!-- MOB 1.1.399 (utente 2026-11-19, D533): lista della spesa con le spunte per chi fa la spesa senza Telegram. Pagina statica (GitHub Pages);
+     i dati arrivano dalla funzione spesa-link con il codice del link (dopo il #, non arriva mai al sito che ospita la pagina). -->
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Lista della spesa</title>
+<style>
+  :root { --bg: #f6f5f1; --card: #ffffff; --ink: #1d1d1b; --mute: #6b6a65; --line: #e4e2db; --acc: #2f7d4f; --acc-bg: #e6f2ea; --warn: #a4471c; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161615; --card: #22221f; --ink: #f1f0ec; --mute: #a3a29b; --line: #34332f; --acc: #6cc18e; --acc-bg: #1f3428; --warn: #e88c5e; } }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); font: 17px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { position: sticky; top: 0; z-index: 2; background: var(--bg); padding: 14px 16px 10px; border-bottom: 1px solid var(--line); }
+  h1 { font-size: 19px; margin: 0 0 4px; font-weight: 650; }
+  .conta { color: var(--mute); font-size: 15px; display: flex; gap: 10px; align-items: center; }
+  .barra { flex: 1; height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .barra i { display: block; height: 100%; width: 0; background: var(--acc); transition: width .3s; }
+  main { padding: 8px 12px 40px; max-width: 640px; margin: 0 auto; }
+  section { background: var(--card); border: 1px solid var(--line); border-radius: 14px; margin: 12px 0; overflow: hidden; }
+  section h2 { margin: 0; font-size: 16px; font-weight: 650; padding: 12px 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none; }
+  section h2 small { color: var(--mute); font-weight: 500; font-size: 14px; }
+  section.finito h2 { color: var(--mute); }
+  section.chiuso ul { display: none; }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { border-top: 1px solid var(--line); }
+  button.voce { all: unset; box-sizing: border-box; width: 100%; display: flex; gap: 12px; align-items: center; padding: 13px 14px; min-height: 52px; cursor: pointer; }
+  .box { flex: none; width: 26px; height: 26px; border-radius: 7px; border: 2px solid var(--mute); display: grid; place-items: center; }
+  .box svg { width: 16px; height: 16px; opacity: 0; }
+  .fatto .box { background: var(--acc); border-color: var(--acc); }
+  .fatto .box svg { opacity: 1; }
+  .fatto .t { color: var(--mute); text-decoration: line-through; }
+  .t { flex: 1; }
+  .off { display: inline-block; font-size: 13px; color: var(--acc); background: var(--acc-bg); border-radius: 6px; padding: 1px 6px; margin-left: 4px; white-space: nowrap; }
+  .attesa { opacity: .55; }
+  .msg { text-align: center; color: var(--mute); padding: 40px 20px; }
+  .msg b { display: block; color: var(--ink); font-size: 18px; margin-bottom: 6px; }
+  .avviso { position: fixed; left: 50%; bottom: max(16px, env(safe-area-inset-bottom)); transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: 15px; opacity: 0; transition: opacity .2s; pointer-events: none; max-width: calc(100% - 32px); }
+  .avviso.su { opacity: .92; }
+  .avviso.err { background: var(--warn); color: #fff; }
+</style>
+</head>
+<body>
+<header><h1 id="tit">Lista della spesa</h1><div class="conta"><span id="conta">…</span><span class="barra"><i id="barra"></i></span></div></header>
+<main id="main"><p class="msg">Carico la lista…</p></main>
+<div class="avviso" id="avviso"></div>
+<script>
+(function () {
+  "use strict";
+  var PROGETTI = { mpzfbcoluxsugwyuntnk: 1, yhtdnfxlszkeydlnxwme: 1 }; // hub-dev e DR HUB
+  var h = (location.hash || "").slice(1), i = h.indexOf("."), ref = h.slice(0, i), codice = h.slice(i + 1);
+  window.addEventListener("hashchange", function () { location.reload(); }); // link nuovo nella stessa scheda
+  var main = document.getElementById("main"), lista = null, inVolo = {}, aperti = {};
+  var SPUNTA = '<svg viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5l3.2 3L13 4.5"/></svg>';
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function avviso(t, err) { var a = document.getElementById("avviso"); a.textContent = t; a.className = "avviso su" + (err ? " err" : ""); clearTimeout(avviso.k); avviso.k = setTimeout(function () { a.className = "avviso"; }, 2200); }
+  function ferma(t, sotto) { main.innerHTML = '<p class="msg"><b>' + esc(t) + "</b>" + esc(sotto || "") + "</p>"; document.getElementById("conta").textContent = ""; }
+  if (!PROGETTI[ref] || !codice) { ferma("Link non valido.", "Chiedi di rimandarti la lista."); return; }
+  var API = "https://" + ref + ".supabase.co/functions/v1/spesa-link";
+  function chiama(corpo) {
+    return fetch(API, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(corpo), cache: "no-store" })
+      .then(function (r) { return r.json().catch(function () { return { ok: false, errore: "Risposta non valida." }; }); });
+  }
+  function testo(t) { // «Mozzarella · Esselunga 2,69 €» → nome + etichetta dell'offerta
+    var m = String(t).match(/^(.*) · ([A-ZÀ-Ü][^·]* \d+,\d{2} €)$/);
+    return m ? esc(m[1]) + '<span class="off">' + esc(m[2]) + "</span>" : esc(t);
+  }
+  function disegna() {
+    if (!lista) return;
+    document.getElementById("tit").textContent = lista.titolo;
+    var fatti = lista.tot - lista.n;
+    document.getElementById("conta").textContent = lista.n ? lista.n + " da prendere · " + fatti + " pres" + (fatti === 1 ? "o" : "i") : "Tutto preso";
+    document.getElementById("barra").style.width = (lista.tot ? Math.round(fatti * 100 / lista.tot) : 0) + "%";
+    if (!lista.tot) { ferma("La lista è vuota.", ""); return; }
+    var html = "";
+    lista.reparti.forEach(function (r) {
+      var resta = r.voci.filter(function (v) { return !v.done; }).length, finito = resta === 0;
+      var chiuso = r.rep in aperti ? !aperti[r.rep] : finito;
+      var voci = r.voci.slice().sort(function (a, b) { return (a.done ? 1 : 0) - (b.done ? 1 : 0); });
+      html += '<section class="' + (finito ? "finito " : "") + (chiuso ? "chiuso" : "") + '" data-rep="' + esc(r.rep) + '"><h2>' + esc(r.emo + " " + r.rep) + "<small>" + (finito ? "fatto ✓" : resta + " da prendere") + "</small></h2><ul>";
+      voci.forEach(function (v) { html += '<li><button class="voce' + (v.done ? " fatto" : "") + (inVolo[v.cb] ? " attesa" : "") + '" data-cb="' + esc(v.cb) + '" aria-pressed="' + (v.done ? "true" : "false") + '"><span class="box">' + SPUNTA + '</span><span class="t">' + testo(v.t) + "</span></button></li>"; });
+      html += "</ul></section>";
+    });
+    main.innerHTML = html;
+  }
+  function carica(silenzio) {
+    if (Object.keys(inVolo).length) return Promise.resolve();
+    return chiama({ codice: codice }).then(function (j) {
+      if (!j.ok) { if (!lista || !silenzio) ferma(j.errore || "Non riesco a leggere la lista.", ""); return; }
+      lista = j.lista; disegna();
+    }).catch(function () { if (!lista) ferma("Non riesco a leggere la lista.", "Controlla la connessione e ricarica la pagina."); });
+  }
+  main.addEventListener("click", function (e) {
+    var h2 = e.target.closest("h2");
+    if (h2) { var s = h2.parentNode, rep = s.getAttribute("data-rep"); aperti[rep] = s.classList.contains("chiuso"); s.classList.toggle("chiuso"); return; }
+    var b = e.target.closest("button.voce"); if (!b) return;
+    var cb = b.getAttribute("data-cb"); if (inVolo[cb]) return;
+    // subito sullo schermo, poi il salvataggio
+    lista.reparti.forEach(function (r) { r.voci.forEach(function (v) { if (v.cb === cb) { v.done = !v.done; lista.n += v.done ? -1 : 1; } }); });
+    inVolo[cb] = 1; disegna(); if (navigator.vibrate) navigator.vibrate(12);
+    chiama({ codice: codice, cb: cb }).then(function (j) {
+      delete inVolo[cb];
+      if (j.lista) lista = j.lista;
+      if (!j.ok) avviso(j.errore || "Non salvato, riprova.", true);
+      disegna();
+    }).catch(function () { delete inVolo[cb]; avviso("Non salvato: controlla la connessione.", true); carica(true); });
+  });
+  carica(false);
+  setInterval(function () { if (document.visibilityState === "visible") carica(true); }, 15000);
+  document.addEventListener("visibilitychange", function () { if (document.visibilityState === "visible") carica(true); });
+})();
+</script>
+</body>
+</html>
